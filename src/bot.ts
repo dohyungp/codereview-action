@@ -78,7 +78,6 @@ IMPORTANT: Entire response must be in the language with ISO code: ${options.lang
     const previousResponseId = ids.responseId ?? ids.parentMessageId
     const requestPayload: Record<string, unknown> = {
       model: this.model,
-      temperature: this.options.openaiModelTemperature,
       input: [
         {
           role: 'system',
@@ -95,6 +94,10 @@ IMPORTANT: Entire response must be in the language with ISO code: ${options.lang
     if (previousResponseId) {
       // eslint-disable-next-line camelcase
       requestPayload.previous_response_id = previousResponseId
+    }
+    // Some modern models (e.g. gpt-5 family) reject temperature.
+    if (!this.model.startsWith('gpt-5')) {
+      requestPayload.temperature = this.options.openaiModelTemperature
     }
 
     let response: OpenAIResponse | undefined
@@ -123,7 +126,7 @@ IMPORTANT: Entire response must be in the language with ISO code: ${options.lang
     if (response != null) {
       responseText = this.extractResponseText(response)
     } else {
-      setFailed('The OpenAI API is not initialized')
+      setFailed('Failed to get a response from the OpenAI API')
       warning('openai response is null')
     }
 
