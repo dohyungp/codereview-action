@@ -63,7 +63,7 @@ export const codeReview = async (
     return
   }
 
-  // as gpt-3.5-turbo isn't paying attention to system message, add to inputs for now
+  // Keep system message in prompt context for compatibility with custom prompts.
   inputs.systemMessage = options.systemMessage
 
   // get SUMMARIZE_TAG message
@@ -131,9 +131,10 @@ export const codeReview = async (
   }
 
   // Filter out any file that is changed compared to the incremental changes
-  const files = targetBranchFiles.filter(targetBranchFile =>
+  const files = targetBranchFiles.filter((targetBranchFile: any) =>
     incrementalFiles.some(
-      incrementalFile => incrementalFile.filename === targetBranchFile.filename
+      (incrementalFile: any) =>
+        incrementalFile.filename === targetBranchFile.filename
     )
   )
 
@@ -399,7 +400,7 @@ ${
 ${filename}: ${summary}
 `
       }
-      // ask chatgpt to summarize the summaries
+      // ask the heavy model to summarize the summaries
       const [summarizeResp] = await heavyBot.chat(
         prompts.renderSummarizeChangesets(inputs),
         {}
@@ -867,14 +868,25 @@ function parseReview(
   response = sanitizeResponse(response.trim())
 
   const lines = response.split('\n')
-  const lineNumberRangeRegex = /(?:^|\s)(\d+)-(\d+):\s*$/
+  const lineNumberRangeRegex = /(?:^|\s)(\d+)(?:-(\d+))?:\s*(.*)$/
   const commentSeparator = '---'
 
   let currentStartLine: number | null = null
   let currentEndLine: number | null = null
   let currentComment = ''
+  let inCodeBlock = false
   function storeReview(): void {
     if (currentStartLine !== null && currentEndLine !== null) {
+      if (currentComment.trim() === '') {
+        return
+      }
+
+      if (currentStartLine > currentEndLine) {
+        const tmp = currentStartLine
+        currentStartLine = currentEndLine
+        currentEndLine = tmp
+      }
+
       const review: Review = {
         startLine: currentStartLine,
         endLine: currentEndLine,
@@ -882,8 +894,10 @@ function parseReview(
       }
 
       let withinPatch = false
-      let bestPatchStartLine = -1
-      let bestPatchEndLine = -1
+      let bestPatchStartLine = 0
+      let bestPatchEndLine = 0
+      let bestIntersectionStart = 0
+      let bestIntersectionEnd = 0
       let maxIntersection = 0
 
       for (const [startLine, endLine] of patches) {
@@ -898,6 +912,8 @@ function parseReview(
           maxIntersection = intersectionLength
           bestPatchStartLine = startLine
           bestPatchEndLine = endLine
+          bestIntersectionStart = intersectionStart
+          bestIntersectionEnd = intersectionEnd
           withinPatch =
             intersectionLength === review.endLine - review.startLine + 1
         }
@@ -906,18 +922,17 @@ function parseReview(
       }
 
       if (!withinPatch) {
-        if (bestPatchStartLine !== -1 && bestPatchEndLine !== -1) {
-          review.comment = `> Note: This review was outside of the patch, so it was mapped to the patch with the greatest overlap. Original lines [${review.startLine}-${review.endLine}]
+        if (maxIntersection > 0) {
+          review.comment = `> Note: This review was partially outside of the patch and has been clipped to [${bestIntersectionStart}-${bestIntersectionEnd}]. Original lines [${review.startLine}-${review.endLine}]
 
 ${review.comment}`
-          review.startLine = bestPatchStartLine
-          review.endLine = bestPatchEndLine
+          review.startLine = bestIntersectionStart
+          review.endLine = bestIntersectionEnd
         } else {
-          review.comment = `> Note: This review was outside of the patch, but no patch was found that overlapped with it. Original lines [${review.startLine}-${review.endLine}]
-
-${review.comment}`
-          review.startLine = patches[0][0]
-          review.endLine = patches[0][1]
+          warning(
+            `Skipping review for out-of-range lines ${review.startLine}-${review.endLine}. Closest patch was ${bestPatchStartLine}-${bestPatchEndLine}.`
+          )
+          return
         }
       }
 
@@ -974,20 +989,27 @@ ${review.comment}`
   }
 
   for (const line of lines) {
+    if (line.trim().startsWith('```')) {
+      inCodeBlock = !inCodeBlock
+    }
+
     const lineNumberRangeMatch = line.match(lineNumberRangeRegex)
 
     if (lineNumberRangeMatch != null) {
       storeReview()
       currentStartLine = parseInt(lineNumberRangeMatch[1], 10)
-      currentEndLine = parseInt(lineNumberRangeMatch[2], 10)
-      currentComment = ''
+      currentEndLine = lineNumberRangeMatch[2]
+        ? parseInt(lineNumberRangeMatch[2], 10)
+        : currentStartLine
+      const firstLineComment = lineNumberRangeMatch[3].trim()
+      currentComment = firstLineComment ? `${firstLineComment}\n` : ''
       if (debug) {
         info(`Found line number range: ${currentStartLine}-${currentEndLine}`)
       }
       continue
     }
 
-    if (line.trim() === commentSeparator) {
+    if (!inCodeBlock && line.trim() === commentSeparator) {
       storeReview()
       currentStartLine = null
       currentEndLine = null
