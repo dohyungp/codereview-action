@@ -15067,6 +15067,10 @@ ${commentChain}
                     // parse review
                     const reviews = parseReview(response, patches, options.debug);
                     for (const review of reviews) {
+                        if (isLowSignalReviewComment(review.comment)) {
+                            (0,core.info)(`Skipping low-signal review comment for ${filename}:${review.startLine}-${review.endLine}`);
+                            continue;
+                        }
                         // check for LGTM
                         if (!options.reviewCommentLGTM &&
                             (review.comment.includes('LGTM') ||
@@ -15376,6 +15380,43 @@ ${review.comment}`;
     }
     storeReview();
     return reviews;
+}
+function isLowSignalReviewComment(comment) {
+    const trimmed = comment.trim();
+    if (trimmed.length === 0) {
+        return true;
+    }
+    // Ignore comments that only contain fenced code blocks without explanation.
+    const withoutCodeBlocks = trimmed.replace(/```[\s\S]*?```/g, '').trim();
+    if (withoutCodeBlocks.length === 0) {
+        return true;
+    }
+    const normalized = withoutCodeBlocks
+        .replace(/^> Note:[\s\S]*?\n\n/, '')
+        .trim();
+    const lines = normalized.split('\n').filter(line => line.trim().length > 0);
+    if (lines.length === 0) {
+        return true;
+    }
+    if (lines.length > 1) {
+        return false;
+    }
+    const line = lines[0].trim();
+    const hasIssueLanguage = /(error|bug|issue|fail|incorrect|invalid|missing|syntax|security|race|null|overflow|because|should|must|문제|오류|버그|누락|필요|수정)/i.test(normalized);
+    if (hasIssueLanguage) {
+        return false;
+    }
+    const rawImportOnly = /^import\s+[\w.*{},\s]+from\s+['"][^'"]+['"];?$/i.test(line) ||
+        /^import\s+[\w.]+$/i.test(line);
+    if (rawImportOnly) {
+        return true;
+    }
+    const rawCodeLike = /^[\w$.<>{}\[\]()"':;,+\-/*=!@` ]+$/.test(line) &&
+        /[;(){}.=]/.test(line);
+    if (rawCodeLike) {
+        return true;
+    }
+    return false;
 }
 
 

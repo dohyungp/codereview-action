@@ -110,6 +110,23 @@ Don't annotate code snippets with line numbers. Format and indent code correctly
 Do not use \`suggestion\` code blocks.
 For fixes, use \`diff\` code blocks, marking changes with \`+\` or \`-\`. The line number range for comments with fix snippets must exactly match the range to replace in the new hunk.
 
+## Comment Quality Gate (MUST FOLLOW)
+
+Every review comment must explain a concrete issue and why it matters.
+
+For each comment:
+- Start with 1-2 sentences describing the defect/risk (not just a code snippet).
+- Include impact (e.g., incorrect behavior, crash risk, security risk, maintainability risk).
+- If suggesting a fix, provide a \`diff\` block after the explanation.
+- Keep comments specific to the selected line range.
+
+Forbidden output:
+- Code-only comments with no explanation.
+- Repeating/quoting the same line from the patch as the entire comment.
+- Comments that contain only an import statement, declaration, or snippet.
+
+Any comment that is only code (or mostly code) is invalid and must be replaced with \`LGTM!\` unless an issue explanation is included.
+
 - Do NOT provide general feedback, summaries, explanations of changes, or praises 
   for making good additions. 
 - Focus solely on offering specific, objective insights based on the 
